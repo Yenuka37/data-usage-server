@@ -1,29 +1,25 @@
-const fs   = require("fs");
-const path = require("path");
+const { getDB } = require("../config/db");
 
-const DATA_PATH = path.join(__dirname, "../data/usage.json");
-
-// ── Helper ──────────────────────────────────────────────────────────────────
-function readUsage() {
-  const raw = fs.readFileSync(DATA_PATH, "utf8");
-  return JSON.parse(raw);
-}
+const COLLECTION = "usage";
 
 // ── GET /api/usage ──────────────────────────────────────────────────────────
 // Optional query: ?status=ongoing | ?status=completed
-function getAllUsage(req, res) {
+async function getAllUsage(req, res) {
   try {
-    let data = readUsage();
+    const db     = getDB();
+    const filter = {};
     const { status } = req.query;
 
-    if (status === "ongoing") {
-      data = data.filter(m => m.status === "ongoing");
-    } else if (status === "completed") {
-      data = data.filter(m => m.status === "completed");
+    if (status === "ongoing" || status === "completed") {
+      filter.status = status;
     }
 
     // Always return oldest → newest (sorted by updated_at)
-    data.sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
+    const data = await db
+      .collection(COLLECTION)
+      .find(filter)
+      .sort({ updated_at: 1 })
+      .toArray();
 
     res.json({ success: true, data });
   } catch (err) {
@@ -33,11 +29,14 @@ function getAllUsage(req, res) {
 }
 
 // ── GET /api/usage/:month ───────────────────────────────────────────────────
-function getUsageByMonth(req, res) {
+async function getUsageByMonth(req, res) {
   try {
-    const data  = readUsage();
+    const db    = getDB();
     const month = decodeURIComponent(req.params.month);
-    const item  = data.find(m => m.month === month);
+
+    const item = await db
+      .collection(COLLECTION)
+      .findOne({ month });
 
     if (!item) {
       return res.status(404).json({ success: false, error: "Month not found" });
@@ -51,17 +50,24 @@ function getUsageByMonth(req, res) {
 }
 
 // ── GET /api/stats ──────────────────────────────────────────────────────────
-function getStats(req, res) {
+async function getStats(req, res) {
   try {
-    const raw     = readUsage();
-    const current = raw.find(m => m.status === "ongoing");
+    const db = getDB();
 
-    // completed months sorted oldest → newest
-    const history = raw
-      .filter(m => m.status === "completed")
-      .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
+    // Fetch ongoing and completed in parallel
+    const [currentArr, history] = await Promise.all([
+      db.collection(COLLECTION)
+        .find({ status: "ongoing" })
+        .toArray(),
+      db.collection(COLLECTION)
+        .find({ status: "completed" })
+        .sort({ updated_at: 1 })
+        .toArray(),
+    ]);
 
-    // allMonths: oldest → newest, ongoing appended at end
+    const current = currentArr[0] || null;
+
+    // allMonths: completed oldest→newest, ongoing appended at end
     const allMonths = [...history];
     if (current) allMonths.push(current);
 
@@ -86,7 +92,7 @@ function getStats(req, res) {
           / allMonths[allMonths.length - 2].usage_gb * 100)
       : 0;
 
-    // last updated = ongoing month's updated_at → DD.MM.YYYY
+    // lastUpdated = ongoing month's updated_at → DD.MM.YYYY
     const lastUpdated = current
       ? current.updated_at.split("-").reverse().join(".")
       : null;
