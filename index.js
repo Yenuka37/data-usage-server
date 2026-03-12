@@ -7,10 +7,10 @@ const { connectDB } = require("./config/db");
 const usageRoutes   = require("./routes/usage");
 
 const app  = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 
 // ── Middleware ──────────────────────────────────────────────────────────────
-const rawOrigin     = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+const rawOrigin     = process.env.CLIENT_ORIGIN || "https://classy-otter-13763f.netlify.app";
 const allowedOrigin = rawOrigin.replace(/\/$/, "");
 
 app.use(cors({
